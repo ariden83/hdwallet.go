@@ -15,6 +15,24 @@ import (
 	bip39 "github.com/tyler-smith/go-bip39"
 )
 
+// Network represents the type of blockchain network the wallet operates on.
+// It can either be "mainnet" for the production Bitcoin network or "testnet"
+// for the test Bitcoin network, allowing for separate configurations and
+// behaviors for each network.
+type Network string
+
+const (
+	NetworkMainnet Network = "mainnet"
+	NetworkTestnet Network = "testnet"
+
+	ErrInvalidMnemonic  = "mnemonic is required"
+	ErrUnsupportedNet   = "unsupported network type: choose either 'mainnet' or 'testnet'"
+	ErrInvalidPath      = "failed to parse derivation path"
+	ErrKeyDerivation    = "failed to derive key"
+	ErrIndexNegative    = "index cannot be negative"
+	ErrUnsupportedIndex = "unsupported index type"
+)
+
 // Wallet represents an HD wallet.
 type Wallet struct {
 	mnemonic    string
@@ -29,7 +47,7 @@ type Wallet struct {
 type Config struct {
 	Mnemonic string
 	Path     string
-	Network  string
+	Network  Network
 }
 
 // New creates a new Wallet from a configuration.
@@ -41,38 +59,32 @@ func New(config *Config) (*Wallet, error) {
 		return nil, err
 	}
 
-	if config.Mnemonic == "" {
-		return nil, errors.New("mnemonic is required")
+	if config.Mnemonic == "" || !validateMnemonic(config.Mnemonic) {
+		return nil, errors.New(ErrInvalidMnemonic)
 	}
 
-	// 1. Selection of network parameters.
 	params, err := selectNetworkParams(config.Network)
 	if err != nil {
 		return nil, err
 	}
 
-	// 2. Generate the seed.
 	seed := bip39.NewSeed(config.Mnemonic, "")
 
-	// 3. Generate the master key.
 	masterKey, err := generateMasterKey(seed, params)
 	if err != nil {
 		return nil, err
 	}
 
-	// 4. Derive key from path.
 	key, err := deriveKeyFromPath(masterKey, config.Path)
 	if err != nil {
 		return nil, err
 	}
 
-	// 5. Retrieve private and public keys.
 	privateKey, publicKey, err := extractKeys(key)
 	if err != nil {
 		return nil, err
 	}
 
-	// Creation of the portfolio.
 	wallet := &Wallet{
 		mnemonic:    config.Mnemonic,
 		path:        config.Path,
@@ -86,26 +98,26 @@ func New(config *Config) (*Wallet, error) {
 }
 
 // selectDerivationPath selects the bypass path based on the network.
-func selectDerivationPath(network, path string) (string, error) {
+func selectDerivationPath(network Network, path string) (string, error) {
 	if path == "" {
 		switch network {
-		case "mainnet":
+		case NetworkMainnet:
 			return `m/44'/60'/0'/0`, nil
-		case "testnet":
+		case NetworkTestnet:
 			return `m/44'/1'/0'/0`, nil
 		default:
-			return "", errors.New("unsupported network type: choose either 'mainnet' or 'testnet'")
+			return "", errors.New(ErrUnsupportedNet)
 		}
 	}
 	return path, nil
 }
 
 // selectNetworkParams selects network parameters based on configuration.
-func selectNetworkParams(network string) (*chaincfg.Params, error) {
+func selectNetworkParams(network Network) (*chaincfg.Params, error) {
 	switch network {
-	case "mainnet":
+	case NetworkMainnet:
 		return &chaincfg.MainNetParams, nil
-	case "testnet":
+	case NetworkTestnet:
 		return &chaincfg.TestNet3Params, nil
 	default:
 		return nil, errors.New("unsupported network type: choose either 'mainnet' or 'testnet'")
@@ -125,14 +137,14 @@ func generateMasterKey(seed []byte, params *chaincfg.Params) (*hdkeychain.Extend
 func deriveKeyFromPath(masterKey *hdkeychain.ExtendedKey, path string) (*hdkeychain.ExtendedKey, error) {
 	dpath, err := accounts.ParseDerivationPath(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse derivation path: %w", err)
+		return nil, fmt.Errorf("%s: %w", ErrInvalidPath, err)
 	}
 
 	key := masterKey
 	for _, n := range dpath {
 		key, err = key.Derive(n)
 		if err != nil {
-			return nil, fmt.Errorf("failed to derive key: %w", err)
+			return nil, fmt.Errorf("%s: %w", ErrKeyDerivation, err)
 		}
 	}
 	return key, nil
@@ -197,23 +209,18 @@ func convertToUint32(index interface{}) (uint32, error) {
 	switch v := index.(type) {
 	case int:
 		if v < 0 {
-			return 0, errors.New("index cannot be negative")
+			return 0, errors.New(ErrIndexNegative)
 		}
 		return uint32(v), nil
-	case int8, int16, int32:
-		if v.(int) < 0 {
-			return 0, errors.New("index cannot be negative")
-		}
-		return uint32(v.(int)), nil
 	case int64:
 		if v < 0 {
-			return 0, errors.New("index cannot be negative")
+			return 0, errors.New(ErrIndexNegative)
 		}
 		return uint32(v), nil
-	case uint, uint8, uint16, uint32, uint64:
-		return uint32(v.(uint64)), nil
+	case uint, uint32:
+		return uint32(v.(uint32)), nil
 	default:
-		return 0, errors.New("unsupported index type")
+		return 0, errors.New(ErrUnsupportedIndex)
 	}
 }
 
@@ -269,7 +276,7 @@ func (s *Wallet) Mnemonic() string {
 	return s.mnemonic
 }
 
-// Generate a new mnemonic phrase.
+// NewMnemonic generate a new mnemonic phrase.
 func NewMnemonic() (string, error) {
 	entropy, err := bip39.NewEntropy(128)
 	if err != nil {
@@ -281,4 +288,9 @@ func NewMnemonic() (string, error) {
 // NewSeed generates a new BIP32 seed.
 func NewSeed() ([]byte, error) {
 	return bip32.NewSeed()
+}
+
+// ValidateMnemonic checks if the given mnemonic is valid according to BIP39.
+func validateMnemonic(mnemonic string) bool {
+	return bip39.IsMnemonicValid(mnemonic)
 }

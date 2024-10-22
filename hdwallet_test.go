@@ -6,22 +6,13 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/stretchr/testify/assert"
-	"github.com/tyler-smith/go-bip39"
 )
-
-func createTestMnemomic(t *testing.T) string {
-	entropy, err := bip39.NewEntropy(128)
-	assert.NoError(t, err)
-
-	mnemonic, err := bip39.NewMnemonic(entropy)
-	assert.NoError(t, err)
-
-	return mnemonic
-}
 
 // Helper function to generate a sample wallet for testing
 func createTestWallet(t *testing.T) *Wallet {
-	mnemonic := createTestMnemomic(t)
+	mnemonic, err := NewMnemonic()
+	assert.NoError(t, err)
+
 	config := &Config{
 		Mnemonic: mnemonic,
 		Path:     `m/44'/60'/0'/0/0`,
@@ -35,16 +26,16 @@ func createTestWallet(t *testing.T) *Wallet {
 	return wallet
 }
 
-func TestSelectDerivationPath(t *testing.T) {
+func Test_SelectDerivationPath(t *testing.T) {
 	tests := []struct {
-		network     string
+		network     Network
 		path        string
 		expected    string
 		expectError bool
 	}{
-		{"mainnet", "", `m/44'/60'/0'/0`, false},
-		{"testnet", "", `m/44'/1'/0'/0`, false},
-		{"invalid", "", "", true},
+		{NetworkMainnet, "", `m/44'/60'/0'/0`, false},
+		{NetworkTestnet, "", `m/44'/1'/0'/0`, false},
+		{Network("invalid"), "", "", true},
 	}
 
 	for _, test := range tests {
@@ -58,14 +49,14 @@ func TestSelectDerivationPath(t *testing.T) {
 	}
 }
 
-func TestSelectNetworkParams(t *testing.T) {
+func Test_SelectNetworkParams(t *testing.T) {
 	tests := []struct {
-		network     string
+		network     Network
 		expectError bool
 	}{
-		{"mainnet", false},
-		{"testnet", false},
-		{"invalid", true},
+		{NetworkMainnet, false},
+		{NetworkTestnet, false},
+		{Network("invalid"), true},
 	}
 
 	for _, test := range tests {
@@ -76,7 +67,7 @@ func TestSelectNetworkParams(t *testing.T) {
 	}
 }
 
-func TestGenerateMasterKey(t *testing.T) {
+func Test_GenerateMasterKey(t *testing.T) {
 	seed := []byte("test seed")
 	params := &chaincfg.MainNetParams
 
@@ -173,6 +164,28 @@ func Test_Mnemonic(t *testing.T) {
 
 	mnemonic := wallet.Mnemonic()
 	assert.NotEmpty(t, mnemonic)
+
+	t.Run("empty mnemomic", func(t *testing.T) {
+		config := &Config{
+			Mnemonic: "",
+			Path:     `m/44'/0'/0'/0`,
+			Network:  NetworkMainnet,
+		}
+		wallet, err := New(config)
+		assert.EqualError(t, err, ErrInvalidMnemonic)
+		assert.Nil(t, wallet)
+	})
+
+	t.Run("invalid mnemomic", func(t *testing.T) {
+		config := &Config{
+			Mnemonic: "invalid invalid invalid invalid invalid",
+			Path:     `m/44'/0'/0'/0`,
+			Network:  NetworkMainnet,
+		}
+		wallet, err := New(config)
+		assert.EqualError(t, err, ErrInvalidMnemonic)
+		assert.Nil(t, wallet)
+	})
 }
 
 func Test_New_with_mainnet(t *testing.T) {
