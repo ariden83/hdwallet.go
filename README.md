@@ -1,6 +1,6 @@
 # hdwallet.go
 
-Generate Ethereum wallet from mnemomic, in GOLANG.
+Generate an Ethereum wallet from a mnemonic phrase using Golang.
 
 ## Resources
 
